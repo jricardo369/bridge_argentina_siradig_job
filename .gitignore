@@ -1,0 +1,46 @@
+# ===== Maven =====
+/target/
+
+# ===== IDEs =====
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# NetBeans
+nbproject/private/
+/build/
+/dist/
+/nbbuild/
+
+# VS Code
+.vscode/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Java =====
+*.class
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Temp =====
+tmp/
+temp/
+
+# ===== Wrapper =====
+# (normalmente se versiona maven-wrapper.jar para builds reproducibles)
+
+# ===== Secrets =====
+*.env
+application-local.properties
+application-dev.properties
