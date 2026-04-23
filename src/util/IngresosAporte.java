@@ -30,7 +30,19 @@ public class IngresosAporte {
     private String anio = "";
     
     private String segSocCajas = "";
-    
+    private String ajusteRemGravadas = "";
+    private String ajusteRemExeNoAlcanzadas = "";
+
+     private String segSocAnses = "";
+     private String remunLey19640 = "";
+    private String noRetMedCaut = "";
+    private String remunCctPetro = "";
+    private String asignFam = "";
+    private String intPrestEmp = "";
+    private String remunJudiciales = "";
+    private String indemLey4003 = "";
+    private String cursosSemin = "";
+    private String indumEquipEmp = "";
 
     public String getId() {
         return id;
@@ -209,8 +221,105 @@ public class IngresosAporte {
 		this.segSocCajas = segSocCajas;
 	}
 
+    
 
-	@Override
+	public String getAjusteRemGravadas() {
+        return ajusteRemGravadas;
+    }
+
+    public void setAjusteRemGravadas(String ajusteRemGravadas) {
+        this.ajusteRemGravadas = ajusteRemGravadas;
+    }
+
+    public String getAjusteRemExeNoAlcanzadas() {
+        return ajusteRemExeNoAlcanzadas;
+    }
+
+    public void setAjusteRemExeNoAlcanzadas(String ajusteRemExeNoAlcanzadas) {
+        this.ajusteRemExeNoAlcanzadas = ajusteRemExeNoAlcanzadas;
+    }
+
+    public String getSegSocAnses() {
+        return segSocAnses;
+    }
+
+    public void setSegSocAnses(String segSocAnses) {
+        this.segSocAnses = segSocAnses;
+    }
+
+    public String getRemunLey19640() {
+        return remunLey19640;
+    }
+
+    public void setRemunLey19640(String remunLey19640) {
+        this.remunLey19640 = remunLey19640;
+    }
+
+    public String getNoRetMedCaut() {
+        return noRetMedCaut;
+    }
+
+    public void setNoRetMedCaut(String noRetMedCaut) {
+        this.noRetMedCaut = noRetMedCaut;
+    }
+
+    public String getRemunCctPetro() {
+        return remunCctPetro;
+    }
+
+    public void setRemunCctPetro(String remunCctPetro) {
+        this.remunCctPetro = remunCctPetro;
+    }
+
+    public String getAsignFam() {
+        return asignFam;
+    }
+
+    public void setAsignFam(String asignFam) {
+        this.asignFam = asignFam;
+    }
+
+    public String getIntPrestEmp() {
+        return intPrestEmp;
+    }
+
+    public void setIntPrestEmp(String intPrestEmp) {
+        this.intPrestEmp = intPrestEmp;
+    }
+
+    public String getRemunJudiciales() {
+        return remunJudiciales;
+    }
+
+    public void setRemunJudiciales(String remunJudiciales) {
+        this.remunJudiciales = remunJudiciales;
+    }
+
+    public String getIndemLey4003() {
+        return indemLey4003;
+    }
+
+    public void setIndemLey4003(String indemLey4003) {
+        this.indemLey4003 = indemLey4003;
+    }
+
+    public String getCursosSemin() {
+        return cursosSemin;
+    }
+
+    public void setCursosSemin(String cursosSemin) {
+        this.cursosSemin = cursosSemin;
+    }
+
+    public String getIndumEquipEmp() {
+        return indumEquipEmp;
+    }
+
+    public void setIndumEquipEmp(String indumEquipEmp) {
+        this.indumEquipEmp = indumEquipEmp;
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("IngresosAporte{id=").append(id);

@@ -27,6 +27,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.stream.Collectors;
 import javax.xml.XMLConstants;
@@ -59,6 +60,9 @@ public class BSMSIRADIGARG {
     String dir = "E:\\BSM\\SendMail\\";
     DecimalFormat formato1 = new DecimalFormat("#,###.##");
 
+    private static String rutaPrd = "\\\\corp.pep.pvt\\appscorp\\SCUS\\Operationsbridge\\Finanzas\\Payroll\\ArchivosSIRADIGARG";
+    private static String rutaTest = "E:\\TEST\\FILES_SIRADIG";
+
     public static void main(String[] args)
             throws EmailException, SQLException, Exception {
     	
@@ -85,30 +89,180 @@ public class BSMSIRADIGARG {
             BSMSIRADIGARG exe = new BSMSIRADIGARG();
 
             List<Empleado> empleados = new ArrayList<>();
-            // empleados = exe.obtenerDatosXMlDesdeDirectorio("E:\\TEST\\FILES_SIRADIG");
-            empleados = exe.obtenerDatosXMLDesdeRuta("E:\\TEST\\FILES_SIRADIG");
+            empleados = exe.obtenerDatosXMLDesdeRuta(rutaTest);
             exe.insertarDatos(procDate, "BSMSIRADIGARG", empleados);
 
         } else {
 
             System.out.println(dateFormat.format(new Date()) + " Inicio proceso de envio de correos");
-
+            List<Empleado> empleados = new ArrayList<>();
             BSMSIRADIGARG exe = new BSMSIRADIGARG();
-            for (int i = 0; i < args.length; i++) {
-                exe.enviaCorreos(procDate, args[i]);
-            }
-            exe.enviaCorreos(procDate, "BSMSIRADIGARG");
+            empleados = exe.obtenerDatosXMLDesdeRuta(rutaPrd);
+            exe.insertarDatos(procDate, "BSMSIRADIGARG", empleados);
+
+            exe.envioCorreosAdmins(procDate, "BSMSIRADIGARG");
+
             System.out.println(dateFormat.format(new Date()) + " Fin proceso de envio de correos");
+
+            /*System.out.println(dateFormat.format(new Date()) + " Inicio proceso de envio de correos");
+            BSMSIRADIGARG exe = new BSMSIRADIGARG();
+            //for (int i = 0; i < args.length; i++) {
+            //    exe.enviaCorreos(procDate, args[i]);
+            //}
+            exe.enviaCorreos(procDate, "BSMSIRADIGARG");
+            System.out.println(dateFormat.format(new Date()) + " Fin proceso de envio de correos");*/
+        }
+
+    }
+
+    private void envioCorreosAdmins(Date procDate, String mailId) {
+
+        System.out.println("Procesando mailId: " + mailId);
+
+        try {
+
+            File configFile = new File("E:\\BSM\\SendMail\\Conf\\", "myconfigRisServer.properties");
+
+            String tablaInfo = "";
+            String files = "";
+
+            Properties props = new Properties();
+            MailHelperVO emailStruct = new MailHelperVO();
+
+            emailStruct.setId(mailId);
+            try {
+                InputStream stream = new FileInputStream(configFile);
+                props.load(stream);
+            } catch (FileNotFoundException e) {
+                System.err.println("FAILED: failed to open config file. " + e);
+            } catch (IOException e) {
+                System.err.println("FAILED: failed to load propierties. " + e);
+            }
+
+            String driver = props.getProperty("driver");
+            Connection conn = null;
+            Connection connData = null;
+            Connection connData2 = null;
+            ResultSet rs = null;
+            PreparedStatement selReads = null;
+            PreparedStatement insLogs = null;
+
+            try {
+
+                String url = props.getProperty("bsmgridped.url");
+                String username = props.getProperty("bsmgridped.username");
+                String password = props.getProperty("bsmgridped.password");
+                if (Constantes.DEBUG_MODE.booleanValue()) {
+                    System.err.println("\tURL: " + url + " User: " + username + " Passwd: " + password);
+                }
+                Class.forName(driver);
+                conn = DriverManager.getConnection(url, username, password);
+
+            } catch (Exception e) {
+                System.out.println("FAILED: failed to load Oracle JDBC driver. " + e);
+            }
+
+            if (conn != null) {
+                String paramQry = "";
+                String logQuery = "INSERT INTO BSM_CONFIG_LOGS (appid, logdate, paramid, logvalue, loglabel) VALUES (?, TO_DATE(?, 'YYYY/MM/DD HH24:MI:SS'), ?, ?, ?)";
+
+                String hora = new SimpleDateFormat("HH:mm:ss").format(procDate);
+                String reportDate = new SimpleDateFormat("EEEEE MMM dd", Locale.ENGLISH).format(procDate) + " @ "
+                        + hora;
+                if (Constantes.DEBUG_MODE.booleanValue()) {
+                    System.out.println(
+                            new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Procesando: " + mailId);
+                }
+                String query = "UPDATE bsm_config_appmail SET applastexec = TO_DATE(?, 'YYYY/MM/DD HH24:MI:SS') WHERE appid = ?";
+
+                insLogs = conn.prepareStatement(query);
+                insLogs.setString(1, new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(procDate));
+                insLogs.setString(2, mailId);
+                insLogs.executeUpdate();
+                insLogs.close();
+
+                query = "SELECT mailserver, frommail, subjectmail, appname, appframes, applogged, applogexp, appadmin, appinstance, u.usermail, u.usersend "
+                        + "FROM BSM_CONFIG_APPMAIL a, BSM_CONFIG_USERMAIL u WHERE a.appId = ? AND a.appId = u.appId AND appActive = 'Y' AND u.ACTIVO = 1 AND u.MONITORNAME = 's'";
+                if (Constantes.DEBUG_MODE.booleanValue()) {
+                    System.out.println(
+                            new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Mail Application: "
+                                    + query);
+                }
+                selReads = conn.prepareStatement(query);
+                selReads.setString(1, mailId);
+                rs = selReads.executeQuery();
+                while (rs.next()) {
+                    if (emailStruct.getServer() == null) {
+                        emailStruct.setServer(rs.getString("mailserver"));
+                        emailStruct.setFrom(rs.getString("frommail"));
+                        emailStruct.setSubject(rs.getString("subjectmail"));
+                        emailStruct.setName(rs.getString("appname"));
+                        emailStruct.setFrames(rs.getString("appframes"));
+                        emailStruct.setAdminMail(rs.getString("appadmin"));
+                        emailStruct.setLogged(rs.getString("applogged"), rs.getInt("applogexp"));
+                        emailStruct.setInstance(
+                                rs.getString("appinstance") != null ? rs.getString("appinstance") : "bsmgridped");
+                    }
+                    System.out.println("Email: " + rs.getString("usermail"));
+                    //emailStruct.setUsersList(rs.getString("usermail"), rs.getString("usersend"));
+                }
+                rs.close();
+                selReads.close();
+
+                List<String> correos = new ArrayList<>();
+
+                File logoImg = new File(dir + "Images\\" + props.getProperty("logo"));
+
+                String tmpString = readFileAsString("E:\\BSM\\SendMail\\hmtlFiles\\templateTableSpace.html");
+
+                String strText = tmpString;
+                if (strText.contains("{ReportName}")) {
+                    strText = strText.replace("{ReportName}", emailStruct.getName());
+                }
+                if (strText.contains("{ReportDate}")) {
+                    strText = strText.replace("{ReportDate}", reportDate);
+                }
+
+                emailStruct.setBodyMail(strText);
+                if (strText.contains("{LogoPepsiCo}")) {
+                    emailStruct.insLogo(logoImg);
+                    emailStruct.insFrames();
+                }
+
+                String url = props.getProperty("bsmgridbmcone.url");
+                String user = props.getProperty("bsmgridbmcone.username");
+                String password = props.getProperty("bsmgridbmcone.password");
+
+                if (Constantes.DEBUG_MODE) {
+                    System.err.println(
+                            "new Connect[" + emailStruct.getInstance() + "]: " + url + ", " + user + "/" + password);
+                }
+
+                 files += "DDH<br>";
+
+            tablaInfo += files;
+
+            tablaInfo += "<br>";
+            emailStruct.setBodyMail(emailStruct.getBodyMail().replace("{contenido}", tablaInfo));
+            emailStruct.setHdrMail(hora);
+                
+                emailStruct.insUsers();
+                emailStruct.sendMail();
+       
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error en envioCorreosAdmins: " + e);
         }
 
     }
 
     private void enviaCorreos(Date procDate, String mailId)
             throws EmailException, SQLException, Exception {
-    	
+
+        System.out.println("Procesando mailId: " + mailId);
+
         File configFile = new File("E:\\BSM\\SendMail\\Conf\\", "myconfigRisServer.properties");
-        //File configFile = new File("E:\\BSM\\SendMail\\Conf\\", "myconfigTestCloud.properties");
-//        File configFile = new File(dir + "Conf\\", "myconfig.properties");
 
         Properties props = new Properties();
         MailHelperVO emailStruct = new MailHelperVO();
@@ -122,6 +276,7 @@ public class BSMSIRADIGARG {
         } catch (IOException e) {
             System.err.println("FAILED: failed to load propierties. " + e);
         }
+
         String driver = props.getProperty("driver");
         Connection conn = null;
         Connection connData = null;
@@ -129,14 +284,9 @@ public class BSMSIRADIGARG {
         ResultSet rs = null;
         PreparedStatement selReads = null;
         PreparedStatement insLogs = null;
-        
-        String hora = new SimpleDateFormat("HH:mm:ss").format(procDate);
-        String query = "";
-        String logQuery = "";
-        List<String> correos = new ArrayList<>();
-        
 
         try {
+
             String url = props.getProperty("bsmgridped.url");
             String username = props.getProperty("bsmgridped.username");
             String password = props.getProperty("bsmgridped.password");
@@ -145,20 +295,20 @@ public class BSMSIRADIGARG {
             }
             Class.forName(driver);
             conn = DriverManager.getConnection(url, username, password);
+
         } catch (Exception e) {
             System.out.println("FAILED: failed to load Oracle JDBC driver. " + e);
         }
+
         if (conn != null) {
-        	
-        	/*
-        	
             String paramQry = "";
             String logQuery = "INSERT INTO BSM_CONFIG_LOGS (appid, logdate, paramid, logvalue, loglabel) VALUES (?, TO_DATE(?, 'YYYY/MM/DD HH24:MI:SS'), ?, ?, ?)";
 
-           
+            String hora = new SimpleDateFormat("HH:mm:ss").format(procDate);
             String reportDate = new SimpleDateFormat("EEEEE MMM dd", Locale.ENGLISH).format(procDate) + " @ " + hora;
             if (Constantes.DEBUG_MODE.booleanValue()) {
-                System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Procesando: " + mailId);
+                System.out.println(
+                        new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Procesando: " + mailId);
             }
             String query = "UPDATE bsm_config_appmail SET applastexec = TO_DATE(?, 'YYYY/MM/DD HH24:MI:SS') WHERE appid = ?";
 
@@ -169,9 +319,10 @@ public class BSMSIRADIGARG {
             insLogs.close();
 
             query = "SELECT mailserver, frommail, subjectmail, appname, appframes, applogged, applogexp, appadmin, appinstance, u.usermail, u.usersend "
-                    + "FROM BSM_CONFIG_APPMAIL a, BSM_CONFIG_USERMAIL u WHERE a.appId = ? AND a.appId = u.appId AND appActive = 'Y' AND u.ACTIVO=1 AND u.MONITORNAME = 's'";
+                    + "FROM BSM_CONFIG_APPMAIL a, BSM_CONFIG_USERMAIL u WHERE a.appId = ? AND a.appId = u.appId AND appActive = 'Y' AND u.ACTIVO = 1 AND u.MONITORNAME = 's'";
             if (Constantes.DEBUG_MODE.booleanValue()) {
-                System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Mail Application: " + query);
+                System.out.println(
+                        new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Mail Application: " + query);
             }
             selReads = conn.prepareStatement(query);
             selReads.setString(1, mailId);
@@ -185,27 +336,20 @@ public class BSMSIRADIGARG {
                     emailStruct.setFrames(rs.getString("appframes"));
                     emailStruct.setAdminMail(rs.getString("appadmin"));
                     emailStruct.setLogged(rs.getString("applogged"), rs.getInt("applogexp"));
-                    emailStruct.setInstance(rs.getString("appinstance") != null ? rs.getString("appinstance") : "bsmgridped");
+                    emailStruct.setInstance(
+                            rs.getString("appinstance") != null ? rs.getString("appinstance") : "bsmgridped");
                 }
                 System.out.println("Email: " + rs.getString("usermail"));
                 emailStruct.setUsersList(rs.getString("usermail"), rs.getString("usersend"));
             }
             rs.close();
             selReads.close();
-            
-          
-            */
-            
-        	/*
 
             List<String> correos = new ArrayList<>();
 
-//            if (!emailStruct.getToMail().isEmpty()) {
-//            emailStruct.setHdrMail(hora);
             File logoImg = new File(dir + "Images\\" + props.getProperty("logo"));
 
             String tmpString = readFileAsString("E:\\BSM\\SendMail\\hmtlFiles\\templateTableSpace.html");
-//                System.out.println(data);
 
             String strText = tmpString;
             if (strText.contains("{ReportName}")) {
@@ -220,23 +364,17 @@ public class BSMSIRADIGARG {
                 emailStruct.insLogo(logoImg);
                 emailStruct.insFrames();
             }
-            
-            */
-       
-        
-            
-        
-       
 
             String url = props.getProperty("bsmgridbmcone.url");
             String user = props.getProperty("bsmgridbmcone.username");
             String password = props.getProperty("bsmgridbmcone.password");
-            
+
             if (Constantes.DEBUG_MODE) {
-                System.err.println("new Connect[" + emailStruct.getInstance() + "]: " + url + ", " + user + "/" + password);
+                System.err.println(
+                        "new Connect[" + emailStruct.getInstance() + "]: " + url + ", " + user + "/" + password);
             }
             connData = DriverManager.getConnection(url, user, password);
-            
+
             String url2 = props.getProperty("bsmopert.url");
             String user2 = props.getProperty("bsmopert.username");
             String password2 = props.getProperty("bsmopert.password");
@@ -270,13 +408,16 @@ public class BSMSIRADIGARG {
                 for (int i = 0; i < directoryList.length; i++) {
                     String fileName = directoryList[i];
                     File fileToCheck = new File(ruta + "\\" + fileName);
-                    long fechaActual = Long.parseLong(new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(fileToCheck.lastModified())));
+                    long fechaActual = Long.parseLong(
+                            new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(fileToCheck.lastModified())));
                     if (fileToCheck.isDirectory()) {
                         listaDir.add(fileName);
                     } else {
                         if (!fileName.contains("$") && fileName.contains(".xml")) {
-                            System.out.println(fileName + ", Date: " + fechaActual + ", Dir: " + listaDir.get(i) + ", esDir: " + fileToCheck.isDirectory());
-                            empleados.add(obtenerXMLJSON(ruta + "\\" + fileName, listaDir.get(i), fileName, count,false));
+                            System.out.println(fileName + ", Date: " + fechaActual + ", Dir: " + listaDir.get(i)
+                                    + ", esDir: " + fileToCheck.isDirectory());
+                            empleados.add(
+                                    obtenerXMLJSON(ruta + "\\" + fileName, listaDir.get(i), fileName, count, false));
 
                             count++;
                         }
@@ -293,10 +434,13 @@ public class BSMSIRADIGARG {
                     for (int j = 0; j < directoryListInsd.length; j++) {
                         String fileName = directoryListInsd[j];
                         File fileToCheck = new File(ruta + "\\" + listaDir.get(i) + "\\" + fileName);
-                        long fechaActual = Long.parseLong(new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(fileToCheck.lastModified())));
+                        long fechaActual = Long.parseLong(
+                                new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(fileToCheck.lastModified())));
                         if (!fileName.contains("$") && fileName.contains(".xml")) {
-                            empleados.add(obtenerXMLJSON(ruta + "\\" + listaDir.get(i) + "\\" + fileName, listaDir.get(i), fileName, count,false));
+                            empleados.add(obtenerXMLJSON(ruta + "\\" + listaDir.get(i) + "\\" + fileName,
+                                    listaDir.get(i), fileName, count, false));
                             count++;
+
                         }
                     }
                 }
@@ -311,7 +455,6 @@ public class BSMSIRADIGARG {
             List<Periodo> periodosRe = new ArrayList<>();
             List<Detalle> detallesRe = new ArrayList<>();
             List<DatoAdicional> datosAdiconales = new ArrayList<>();
-            List<OtrosEmp> otrosEmp = new ArrayList<>();
 
             int countX = 1;
 
@@ -362,40 +505,36 @@ public class BSMSIRADIGARG {
             resuldel = selReads.executeUpdate(cadena);
             System.out.println("Delete BSM_SIRADIG_ARG_DATOS_ADICIONALES resultado: " + resuldel);
 
-            cadena = "DELETE FROM BSM_SIRADIG_ARG_OTROS_EMP";
-            selReads = connData.prepareStatement(cadena);
-            resuldel = selReads.executeUpdate(cadena);
-            System.out.println("Delete BSM_SIRADIG_ARG_OTROS_EMP resultado: " + resuldel);
-            
             Statement select = null;
             ResultSet result = null;
-            
+
             if (Constantes.DEBUG_MODE.booleanValue()) {
-                System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Comenzar a insertar");
+                System.out.println(
+                        new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Comenzar a insertar");
             }
-            
-            //Obtener todos los empleados de catalogos
-                //Obtener datos de empleado de catalgo BAR_HC
-                    select = connData2.createStatement();
-                result = select.executeQuery("SELECT E.ID,E.GPID,E.NOMBRE,E.REGISTRO_FISCAL,E.ESTADO_HR,C.DESCRIPCION,N.CLASE_NOMINA "
-                                +"FROM BAR_HC E "
-                                +"JOIN BAR_COMPANIA C ON E.ID_COMPANIA = C.ID "
-                                +"JOIN BAR_TIPO_NOMINA N ON E.ID_TIPO_NOMINA = N.ID ");
-                
-                List<BarHC> lHc = new ArrayList<>();
-                while (result.next()) {
-                    BarHC e = new BarHC();
-                    e.setId(result.getString("ID"));
-                    e.setGpid(result.getString("GPID"));
-                   e.setEstadoHr(result.getString("ESTADO_HR"));
-                   e.setEmpCod(result.getString("DESCRIPCION"));
-                   e.setTipoNomina(result.getString("CLASE_NOMINA"));
-                   e.setNombre(result.getString("NOMBRE"));
-                   e.setRegistroFiscal(result.getString("REGISTRO_FISCAL") != null ? result.getString("REGISTRO_FISCAL"):"");
-                   lHc.add(e);
-                }
-                
-               if (select != null) {
+
+            select = connData2.createStatement();
+            result = select.executeQuery(
+                    "SELECT E.ID,E.GPID,E.NOMBRE,E.REGISTRO_FISCAL,E.ESTADO_HR,C.DESCRIPCION,N.CLASE_NOMINA "
+                            + "FROM BAR_HC E "
+                            + "JOIN BAR_COMPANIA C ON E.ID_COMPANIA = C.ID "
+                            + "JOIN BAR_TIPO_NOMINA N ON E.ID_TIPO_NOMINA = N.ID ");
+
+            List<BarHC> lHc = new ArrayList<>();
+            while (result.next()) {
+                BarHC e = new BarHC();
+                e.setId(result.getString("ID"));
+                e.setGpid(result.getString("GPID"));
+                e.setEstadoHr(result.getString("ESTADO_HR"));
+                e.setEmpCod(result.getString("DESCRIPCION"));
+                e.setTipoNomina(result.getString("CLASE_NOMINA"));
+                e.setNombre(result.getString("NOMBRE"));
+                e.setRegistroFiscal(
+                        result.getString("REGISTRO_FISCAL") != null ? result.getString("REGISTRO_FISCAL") : "");
+                lHc.add(e);
+            }
+
+            if (select != null) {
                 select.close();
                 select = null;
             }
@@ -406,8 +545,9 @@ public class BSMSIRADIGARG {
             if (connData2 != null) {
                 connData2.close();
             }
-                
-                System.out.println("Empleados obtenidos:"+lHc.size());
+
+            System.out.println("Empleados obtenidos:" + lHc.size());
+
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_EMPLEADOS "
                     + "(PERIODO,NROPRESENTACION,FECHAPRESENTACION,DIRECTORIO,NOMBREARCHIVO,CUIT,TIPODOC,APELLIDO,NOMBRE,PROVINCIA,"
                     + "CP,LOCALIDAD,CALLE,NRO,DPTO"
@@ -415,21 +555,16 @@ public class BSMSIRADIGARG {
                     + "VALUES (?, ?, to_date(?, 'yyyy-mm-dd hh24:mi:ss'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, SYSDATE)")) {
                 int i = 0;
                 for (Empleado reg : empleados) {
-                    
+
                     if (Constantes.DEBUG_MODE.booleanValue()) {
-                        //System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " COD EMP:" + reg.getDescEmpresa()+"-"+"CUIT:"+reg.getCuit()+"-");
                     }
-                    List<BarHC> lHcF = lHc.stream().filter(p -> p.getRegistroFiscal().equals(reg.getCuit())).collect(Collectors.toList());
-                    
+                    List<BarHC> lHcF = lHc.stream().filter(p -> p.getRegistroFiscal().equals(reg.getCuit()))
+                            .collect(Collectors.toList());
                     BarHC hc = null;
                     if (!lHcF.isEmpty()) {
                         hc = lHcF.get(0);
-                        //System.out.println("Se encontro concepto "+regla.getCid()+" en listado");
                     }
 
-                    
-                    
-                        
                     if (hc != null) {
                         if (reg.getCodEmpresa().equals("SIN VALOR")) {
                             if (hc.getEmpCod().equals("PEPSICO DE ARGENTINA SRL")) {
@@ -443,19 +578,13 @@ public class BSMSIRADIGARG {
 
                         reg.setClaseNomina(hc.getTipoNomina());
                         if (Constantes.DEBUG_MODE.booleanValue()) {
-                            //System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " estatus emp:" + hc.getEstadoHr());
-                            //System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " empcod emp:" + hc.getEmpCod());
-                            //System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " clase nom emp:" + hc.getTipoNomina());
                         }
                     }
-                        
-                    
-                
-         
+
                     if (i % 30000 == 0) {
                         System.out.println("#" + countX + " i: " + i);
                         try {
-                                procesarStatement(ps, reg).addBatch();
+                            procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
@@ -482,13 +611,12 @@ public class BSMSIRADIGARG {
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-
                     } else if (i == (empleados.size() - 1)) {
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                           e.printStackTrace();
+                            e.printStackTrace();
                         }
 
                         if (empleados.get(i).getCargas().size() > 0) {
@@ -496,7 +624,6 @@ public class BSMSIRADIGARG {
                         }
 
                         if (empleados.get(i).getGanancias().size() > 0) {
-//                            System.out.println("CUIT: " + empleados.get(i).getCuit() + ", " + empleados.get(i).getGanancias().size());
                             ganancias.addAll(empleados.get(i).getGanancias());
                         }
                         if (empleados.get(i).getDeducciones().size() > 0) {
@@ -509,18 +636,13 @@ public class BSMSIRADIGARG {
                         if (empleados.get(i).getDatosAdicionales().size() > 0) {
                             datosAdiconales.addAll(empleados.get(i).getDatosAdicionales());
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
 
@@ -528,7 +650,6 @@ public class BSMSIRADIGARG {
                             cargas.addAll(empleados.get(i).getCargas());
                         }
                         if (empleados.get(i).getGanancias().size() > 0) {
-//                            System.out.println("CUIT: " + empleados.get(i).getCuit() + ", " + empleados.get(i).getGanancias().size());
                             ganancias.addAll(empleados.get(i).getGanancias());
                         }
                         if (empleados.get(i).getDeducciones().size() > 0) {
@@ -540,7 +661,6 @@ public class BSMSIRADIGARG {
                         if (empleados.get(i).getDatosAdicionales().size() > 0) {
                             datosAdiconales.addAll(empleados.get(i).getDatosAdicionales());
                         }
-//                    scriptSQL += ventas.get(i).toInsert();
                         countX++;
                     }
                     i++;
@@ -549,143 +669,93 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_CARGA">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_CARGA "
                     + "(TIPODOC,NRODOC,APELLIDO,NOMBRE,FECHANAC,MESDESDE,MESHASTA,PARENTESCO,VIGENTEPROXIMOSPERIODOS,PORCENTAJEDEDUCCION,NROPRESENTACION,CUIT, ANIO) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < cargas.size(); i++) {
                 int i = 0;
                 for (Carga reg : cargas) {
-//                System.out.println("i: " + i + ", count: " + countX);
-//                if (countX == 300) {
-//                if (i == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                } else 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (cargas.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
-//                    scriptSQL += ventas.get(i).toInsert();
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         countX++;
                     }
                     i++;
                 }
-                
 
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_GANANCIA">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-            try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_GANANCIA (CUITG,DENOMINACION,NROPRESENTACION,CUIT, ANIO) "
-                    + "VALUES (?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < ganancias.size(); i++) {
+            try (PreparedStatement ps = connData.prepareStatement(
+                    "INSERT INTO BSM_SIRADIG_ARG_GANANCIA (CUITG,DENOMINACION,NROPRESENTACION,CUIT, ANIO) "
+                            + "VALUES (?, ?, ?, ?, ?)")) {
                 int i = 0;
                 for (Ganancia reg : ganancias) {
-//                System.out.println("i: " + i + ", count: " + countX);
-//                if (countX == 300) {
-//                if (i == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                } else 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
 
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (ganancias.get(i).getIngresos().size() > 0) {
                             ingresos.addAll(ganancias.get(i).getIngresos());
                         }
 
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (ganancias.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (ganancias.get(i).getIngresos().size() > 0) {
                             ingresos.addAll(ganancias.get(i).getIngresos());
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (ganancias.get(i).getIngresos().size() > 0) {
                             ingresos.addAll(ganancias.get(i).getIngresos());
                         }
-//                    scriptSQL += ventas.get(i).toInsert();
                         countX++;
                     }
                     i++;
@@ -694,61 +764,41 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_INGRESOS">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-            try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_INGRESOS (MES,OBRASOC,SEGSOC,SIND,GANBRUT,RETGAN,RETRIBNOHAB,AJUSTE,EXENOALC,SAC,HORASEXTGR,HORASEXTEX,MATDID,GASTOSMOVVIAT,CUITG,NROPRESENTACION,CUIT, ANIO) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < ingresos.size(); i++) {
+            try (PreparedStatement ps = connData.prepareStatement(
+                    "INSERT INTO BSM_SIRADIG_ARG_INGRESOS (MES,OBRASOC,SEGSOC,SIND,GANBRUT,RETGAN,RETRIBNOHAB,AJUSTE,EXENOALC,SAC,HORASEXTGR,HORASEXTEX,MATDID,GASTOSMOVVIAT,CUITG,NROPRESENTACION,CUIT, ANIO) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
                 int i = 0;
                 for (IngresosAporte reg : ingresos) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (ingresos.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                    scriptSQL += ventas.get(i).toInsert();
                         countX++;
                     }
                     i++;
@@ -757,135 +807,91 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_DEDUCCIONES">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_DEDUCCIONES "
                     + "(ID,TIPODOC,NRODOC,DENOMINACION,DESCBASICA,MONTOTOTAL,NROPRESENTACION,CUIT,TIPO, ANIO, ROWDATE) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSDATE)")) {
-//                for (int i = 0; i < deducciones.size(); i++) {
                 System.out.println("Num Deducciones: " + deducciones.size());
                 int i = 0;
                 for (Deduccion reg : deducciones) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (reg.getPeriodos().size() > 0) {
                             periodosDe.addAll(reg.getPeriodos());
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (deducciones.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (reg.getPeriodos().size() > 0) {
                             periodosDe.addAll(reg.getPeriodos());
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (reg.getPeriodos().size() > 0) {
                             periodosDe.addAll(reg.getPeriodos());
                         }
-//                    scriptSQL += ventas.get(i).toInsert();
                         countX++;
                     }
                     i++;
                 }
 
-//                ps.executeBatch();
-//                ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_PERIODOS DEDUCCIONES">
             connData.setAutoCommit(false);
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_PERIODOS "
                     + "(ID_PARENT,MESDESDE,MESHASTA,MONTOMENSUAL,NRODOC,TIPODOC,NROPRESENTACION,CUIT, ANIO) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < periodosDe.size(); i++) {
                 int i = 0;
                 for (Periodo reg : periodosDe) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (periodosDe.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                    scriptSQL += ventas.get(i).toInsert();
                         countX++;
                     }
                     i++;
@@ -894,28 +900,20 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_RETENCIONES">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_RETENCIONES "
                     + "(ID,DESCBASICA,MONTOTOTAL,COD,NROPRESENTACION,CUIT,TIPO, ANIO) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < retenciones.size(); i++) {
                 int i = 0;
                 for (Retencion reg : retenciones) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (retenciones.get(i).getPeriodos().size() > 0) {
@@ -926,22 +924,15 @@ public class BSMSIRADIGARG {
                             detallesRe.addAll(retenciones.get(i).getDetalles());
                         }
 
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (retenciones.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
 
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (retenciones.get(i).getPeriodos().size() > 0) {
@@ -950,18 +941,13 @@ public class BSMSIRADIGARG {
                         if (retenciones.get(i).getDetalles().size() > 0) {
                             detallesRe.addAll(retenciones.get(i).getDetalles());
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         if (reg.getPeriodos().size() > 0) {
@@ -978,59 +964,39 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_PERIODOS RETENCIONES">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
             try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_PERIODOS "
                     + "(ID_PARENT, MESDESDE,MESHASTA,MONTOMENSUAL,NRODOC,TIPODOC,NROPRESENTACION,CUIT, ANIO) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < periodosRe.size(); i++) {
                 int i = 0;
                 for (Periodo reg : periodosRe) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (periodosRe.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         countX++;
@@ -1041,58 +1007,39 @@ public class BSMSIRADIGARG {
                 ps.executeBatch();
                 ps.clearBatch();
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_DETALLES RETENCIONES">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-            try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_DETALLES (NOMBRE,VALOR,COD,NROPRESENTACION,CUIT, ANIO) "
-                    + "VALUES (?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < detallesRe.size(); i++) {
+            try (PreparedStatement ps = connData.prepareStatement(
+                    "INSERT INTO BSM_SIRADIG_ARG_DETALLES (NOMBRE,VALOR,COD,NROPRESENTACION,CUIT, ANIO) "
+                            + "VALUES (?, ?, ?, ?, ?, ?)")) {
                 int i = 0;
                 for (Detalle reg : detallesRe) {
-//                System.out.println("i: " + i + ", count: " + countX);
 
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else if (i == (detallesRe.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
                         countX++;
@@ -1104,118 +1051,48 @@ public class BSMSIRADIGARG {
                 ps.clearBatch();
 
             }
-            // </editor-fold>
 
-            // <editor-fold desc="BSM_SIRADIG_ARG_DATOS_ADICIONALES">
             connData.setAutoCommit(false);
             countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-            try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_DATOS_ADICIONALES (NOMBRE,MESDESDE,MESHASTA,VALOR,NROPRESENTACION,CUIT, ANIO) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
-//                for (int i = 0; i < datosAdiconales.size(); i++) {
+            try (PreparedStatement ps = connData.prepareStatement(
+                    "INSERT INTO BSM_SIRADIG_ARG_DATOS_ADICIONALES (NOMBRE,MESDESDE,MESHASTA,VALOR,NROPRESENTACION,CUIT, ANIO) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
                 int i = 0;
                 for (DatoAdicional reg : datosAdiconales) {
 
-//                System.out.println("i: " + i + ", count: " + countX);
-//                    if (i % 30000 == 0) {
                     if (i % 30000 == 0) {
-//                    scriptSQL += ventas.get(i).toInsert();
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
-//                    } else if (i == (datosAdiconales.size() - 1)) {
                     } else if (i == (datosAdiconales.size() - 1)) {
-//                    scriptSQL += ventas.get(i).toInsert();
-//                        System.out.println("i: " + i + ", count: " + countX);
                         System.out.println("#" + countX + " i: " + i);
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
-//                        scriptSQL = "insert all " + scriptSQL + " select * from dual";
-//                    ejecutarInsert(scriptSQL, conOracle);
                         ps.executeBatch();
                         ps.clearBatch();
                         countX++;
-//                    scriptSQL = "";
                     } else {
 
                         try {
                             procesarStatement(ps, reg).addBatch();
                         } catch (Exception e) {
-                            //System.err.println(countX + " - " + reg);
-//                                        encbz.setMensaje(encbz.getMensaje() + registroPromDet.toStringSinT() + ", Error: " + e.getMessage() + "<br>");
                             e.printStackTrace();
                         }
 
-//                    scriptSQL += ventas.get(i).toInsert();
                         ps.addBatch();
                         countX++;
                     }
                     i++;
                 }
-
-                ps.executeBatch();
-                ps.clearBatch();
-            }
-            // </editor-fold>
-
-//******************************************************************************************** NUEVO AJUSTE 2026 */
-            // <editor-fold desc="BSM_SIRADIG_OTROS_EMP">
-            connData.setAutoCommit(false);
-            countX = 0;
-            //to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-            try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_ARG_OTROS_EMP "
-                    + "(CUIT,DENOMINACION,RENUMLEY,OBRASOC,SEGSOCCAJAS,RENUMCCTPETRO,SAC,INTPRESTEMP,GANBRUT,SIND,AJUSTEREMEXENOTALCANZADAS,MES,AJUSTEREMGRAVADAS,CURSOSSEMIN,SEGSOCANSES,RETGAN,ASIGNFAM,INDEMLEY4003,RETRIBNOHAB,INDUMEQUIPEMP) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-
-                int i = 0;
-                for (OtrosEmp reg : otrosEmp) {
-                    if (i % 30000 == 0) {
-                        System.out.println("#" + countX + " i: " + i);
-                        try {
-                            procesarStatement(ps, reg).addBatch();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        ps.executeBatch();
-                        ps.clearBatch();
-                        countX++;
-                    } else if (i == (otrosEmp.size() - 1)) {
-                        System.out.println("#" + countX + " i: " + i);
-                        try {
-                            procesarStatement(ps, reg).addBatch();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        ps.executeBatch();
-                        ps.clearBatch();
-                        countX++;
-                    } else {
-                        try {
-                            procesarStatement(ps, reg).addBatch();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        countX++;
-                    }
-                    i++;
-                }
-                
 
                 ps.executeBatch();
                 ps.clearBatch();
@@ -1230,35 +1107,16 @@ public class BSMSIRADIGARG {
             tablaInfo += "<br>";
             emailStruct.setBodyMail(emailStruct.getBodyMail().replace("{contenido}", tablaInfo));
             emailStruct.setHdrMail(hora);
-//            tablaInfo += "EDC<br>";
-//            listaArchivos = obtenerArchivosSFTP(props.getProperty("comedores.urlEDC"), props.getProperty("comedores.host"), props.getProperty("comedores.port"),
-//                    props.getProperty("comedores.user"), props.getProperty("comedores.pass"));
-//
-//            if (listaArchivos != null) {
-//                System.out.println("Archivos recibidos: " + listaArchivos.size());
-//                tablaInfo += listaArchivos.get(0) + "<br>";
-//                listaArchivos.remove(0);
-//                
-//                for (String listaArchivo : listaArchivos) {
-//                    tablaInfo += listaArchivo + "<br>";
-//                    isFiles = true;
-//                }
-//            } else {
-//                System.out.println("No se recibieron Archivos ");
-//            }
-//
-//            emailStruct.setBodyMail(emailStruct.getBodyMail().replace("{contenido}", tablaInfo));
 
-//            if (isEnvioUsers) {
             query = "SELECT mailserver, frommail, subjectmail, appname, appframes, applogged, applogexp, appadmin, appinstance, u.usermail, u.usersend "
                     + "FROM BSM_CONFIG_APPMAIL a, BSM_CONFIG_USERMAIL u "
                     + "WHERE a.appId = ? AND a.appId = u.appId AND appActive = 'Y' AND u.ACTIVO=1 AND u.MONITORNAME = 'user' AND u.PRIORITY='s'";
             if (Constantes.DEBUG_MODE.booleanValue()) {
-                System.out.println(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Mail Application: " + query);
+                System.out.println(
+                        new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " Mail Application: " + query);
             }
             selReads = conn.prepareStatement(query);
             selReads.setString(1, mailId);
-//                selReads.setString(2, monitor);
             rs = selReads.executeQuery();
             while (rs.next()) {
                 if (correos.contains(rs.getString("usermail"))) {
@@ -1271,7 +1129,6 @@ public class BSMSIRADIGARG {
             }
             rs.close();
             selReads.close();
-//            }
 
             insLogs = conn.prepareStatement(logQuery);
             insLogs.setString(1, mailId);
@@ -1283,7 +1140,8 @@ public class BSMSIRADIGARG {
 
             if (emailStruct.isLog()) {
                 if (Constantes.DEBUG_MODE.booleanValue()) {
-                    System.out.print(new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " AppId: " + mailId);
+                    System.out.print(
+                            new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(new Date()) + " AppId: " + mailId);
                     System.out.println(", LogDate: " + new SimpleDateFormat("yyyy/MM/dd HH:mm:ss").format(procDate));
                 }
                 for (ParamHelperVO prm : emailStruct.getParamLst()) {
@@ -1311,7 +1169,6 @@ public class BSMSIRADIGARG {
                 emailStruct.sendMail();
             }
 
-//            }
         }
     }
 
@@ -1381,7 +1238,7 @@ public class BSMSIRADIGARG {
 //                int day = localDate.getDayOfMonth();
 //                SimpleDateFormat gyf = new SimpleDateFormat("yyyy");
 //                SimpleDateFormat gmf = new SimpleDateFormat("month");
-//                System.out.println(reg.getFechaNac() + ", mes: " + month + ", año: " + year);
+//                System.out.println(reg.getFechaNac() + ", mes: " + month + ", aÃ±o: " + year);
                 if ((reg.getParentesco().contains("Hijo") || reg.getParentesco().contains("Hija"))
                         && (Integer.valueOf(reg.getAnio()) > year) //                        && (month > Constantes.obtenerMesNum(mesDesde))
                         ) {
@@ -1431,6 +1288,20 @@ public class BSMSIRADIGARG {
             ps.setString(column++, reg.getCuit());
             ps.setString(column++, reg.getAnio());
             ps.setString(column++, reg.getSegSocCajas());
+            ps.setString(column++, reg.getAjusteRemGravadas());
+            ps.setString(column++, reg.getAjusteRemExeNoAlcanzadas());
+            
+            ps.setString(column++, reg.getSegSocAnses());
+            ps.setString(column++, reg.getRemunLey19640());
+            ps.setString(column++, reg.getNoRetMedCaut());
+            ps.setString(column++, reg.getRemunCctPetro());
+            ps.setString(column++, reg.getAsignFam());
+            ps.setString(column++, reg.getIntPrestEmp());
+            ps.setString(column++, reg.getRemunJudiciales());
+            ps.setString(column++, reg.getIndemLey4003());
+            ps.setString(column++, reg.getCursosSemin());
+            ps.setString(column++, reg.getIndumEquipEmp());
+
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -1512,35 +1383,6 @@ public class BSMSIRADIGARG {
             ps.setString(column++, reg.getNroPresentacion());
             ps.setString(column++, reg.getCuit());
             ps.setString(column++, reg.getAnio());
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
-        return ps;
-    }
-
-    public static PreparedStatement procesarStatement(PreparedStatement ps, OtrosEmp otrosEmp) {
-        try {
-            int column = 1;
-            ps.setString(column++, otrosEmp.getCuit());
-            ps.setString(column++, otrosEmp.getDenominacion());
-            ps.setString(column++, otrosEmp.getRemunLey19640());
-            ps.setString(column++, otrosEmp.getObraSoc());
-            ps.setString(column++, otrosEmp.getSegSocCajas());
-            ps.setString(column++, otrosEmp.getRemunCctPetro());
-            ps.setString(column++, otrosEmp.getSac());
-            ps.setString(column++, otrosEmp.getIntPrestEmp());
-            ps.setString(column++, otrosEmp.getGanBrut());
-            ps.setString(column++, otrosEmp.getSind());
-            ps.setString(column++, otrosEmp.getAjusteRemExeNoAlcanzadas());
-            ps.setString(column++, otrosEmp.getMes());
-            ps.setString(column++, otrosEmp.getAjusteRemGravadas());
-            ps.setString(column++, otrosEmp.getCursosSemin());
-            ps.setString(column++, otrosEmp.getSegSocANSES());
-            ps.setString(column++, otrosEmp.getRetGan());
-            ps.setString(column++, otrosEmp.getAsignFam());
-            ps.setString(column++, otrosEmp.getIndemLey4003());
-            ps.setString(column++, otrosEmp.getRetribNoHab());
-            ps.setString(column++, otrosEmp.getIndumEquipEmp());
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -2227,13 +2069,13 @@ public class BSMSIRADIGARG {
 //                    System.out.println(pdfFileInText);
 //                }
                 for (String line : lines) {
-                    if (line.contains("Agente de Retención:")) {
-                        String[] splitAgente = line.replace("Agente de Retención:", "").trim().split(" - ");
+                    if (line.contains("Agente de RetenciÃ³n:")) {
+                        String[] splitAgente = line.replace("Agente de RetenciÃ³n:", "").trim().split(" - ");
                         emp.setCodEmpresa(splitAgente[0].trim());
                         emp.setDescEmpresa(splitAgente[1].trim());
-//                        System.out.println(line.replace("Agente de Retención:", "").trim());
-                    } else if (line.contains("Apellido y Nombre o Denominación:")) {
-                        String[] splitAgente = line.replace("Apellido y Nombre o Denominación: CUIT:", "").trim().split(" ");
+//                        System.out.println(line.replace("Agente de RetenciÃ³n:", "").trim());
+                    } else if (line.contains("Apellido y Nombre o DenominaciÃ³n:")) {
+                        String[] splitAgente = line.replace("Apellido y Nombre o DenominaciÃ³n: CUIT:", "").trim().split(" ");
                         if (splitAgente.length == 3) {
                             emp.setDescEmpresa(splitAgente[0].trim() + " " + splitAgente[1].trim());
                             emp.setCodEmpresa(splitAgente[2].trim());
@@ -2242,7 +2084,7 @@ public class BSMSIRADIGARG {
                             emp.setCodEmpresa(splitAgente[3].trim());
                         }
 
-//                        System.out.println(line.replace("Apellido y Nombre o Denominación:", "").trim());
+//                        System.out.println(line.replace("Apellido y Nombre o DenominaciÃ³n:", "").trim());
                     }
 
                 }
@@ -3614,12 +3456,6 @@ public class BSMSIRADIGARG {
         resuldel = selReads.executeUpdate(cadena);
         System.out.println("Delete BSM_SIRADIG_ARG_DATOS_ADICIONALES resultado: " + resuldel);
 
-        cadena = "DELETE FROM BSM_SIRADIG_ARG_OTROS_EMP";
-        selReads = connData.prepareStatement(cadena);
-        resuldel = selReads.executeUpdate(cadena);
-        System.out.println("Delete BSM_SIRADIG_ARG_OTROS_EMP resultado: " + resuldel);
-        // to_date(?, 'yyyy-mm-dd hh24:mi:ss')
-
         Statement select = null;
         ResultSet result = null;
 
@@ -3885,8 +3721,9 @@ public class BSMSIRADIGARG {
         connData.setAutoCommit(false);
         countX = 0;
         try (PreparedStatement ps = connData.prepareStatement(
-                "INSERT INTO BSM_SIRADIG_ARG_INGRESOS (MES,OBRASOC,SEGSOC,SIND,GANBRUT,RETGAN,RETRIBNOHAB,AJUSTE,EXENOALC,SAC,HORASEXTGR,HORASEXTEX,MATDID,GASTOSMOVVIAT,CUITG,NROPRESENTACION,CUIT, ANIO,SEGSOCCAJAS) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO BSM_SIRADIG_ARG_INGRESOS (MES,OBRASOC,SEGSOC,SIND,GANBRUT,RETGAN,RETRIBNOHAB,AJUSTE,EXENOALC,SAC,HORASEXTGR,HORASEXTEX,MATDID,GASTOSMOVVIAT,CUITG,NROPRESENTACION,CUIT, ANIO,SEGSOCCAJAS,REMGRAVADAS,REMEXENOGRAV,"+
+                "SEGSOCANSES,REMUNLEY19640,NORETMEDCAUT,REMUNCCTPETRO,ASIGNFAM,INTPRESTEMP,REMUNJUDICIALES,INDEMLEY4003,CURSOSSEMIN,INDUMEQUIPEMP) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             int i = 0;
             for (IngresosAporte reg : ingresos) {
 
@@ -4222,51 +4059,6 @@ public class BSMSIRADIGARG {
             ps.clearBatch();
         }
 
-        // ********************************************************************************************
-        // NUEVO AJUSTE 2026 */
-        connData.setAutoCommit(false);
-        countX = 0;
-        try (PreparedStatement ps = connData.prepareStatement("INSERT INTO BSM_SIRADIG_OTROS_EMP "
-                + "(CUIT,DENOMINACION,RENUMLEY,OBRASOC,SEGSOCCAJAS,RENUMCCTPETRO,SAC,INTPRESTEMP,GANBRUT,SIND,AJUSTEREMEXENOTALCANZADAS,MES,AJUSTEREMGRAVADAS,CURSOSSEMIN,SEGSOCANSES,RETGAN,ASIGNFAM,INDEMLEY4003,RETRIBNOHAB,INDUMEQUIPEMP) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
-
-            int i = 0;
-            for (OtrosEmp reg : otrosEmp) {
-                if (i % 30000 == 0) {
-                    System.out.println("#" + countX + " i: " + i);
-                    try {
-                        procesarStatement(ps, reg).addBatch();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                    ps.executeBatch();
-                    ps.clearBatch();
-                    countX++;
-                } else if (i == (otrosEmp.size() - 1)) {
-                    System.out.println("#" + countX + " i: " + i);
-                    try {
-                        procesarStatement(ps, reg).addBatch();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                    ps.executeBatch();
-                    ps.clearBatch();
-                    countX++;
-                } else {
-                    try {
-                        procesarStatement(ps, reg).addBatch();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                    countX++;
-                }
-                i++;
-            }
-
-            ps.executeBatch();
-            ps.clearBatch();
-        }
-
         connData.commit();
 
         conn.close();
@@ -4343,23 +4135,76 @@ public class BSMSIRADIGARG {
             ingreso.setSegSocCajas(String.valueOf(ingrAptObj.get("segSocCajas")));
         }
 
+        if (ingrAptObj.has("ajusteRemGravadas")) {
+            ingreso.setAjusteRemGravadas(String.valueOf(ingrAptObj.get("ajusteRemGravadas")));
+        }
+
+        if (ingrAptObj.has("ajusteRemExeNoAlcanzadas")) {
+            ingreso.setAjusteRemExeNoAlcanzadas(String.valueOf(ingrAptObj.get("ajusteRemExeNoAlcanzadas")));
+        }
+
+        //Ajuste 2026-05-22
+
+        if (ingrAptObj.has("remunLey19640")) {
+            ingreso.setRemunLey19640(String.valueOf(ingrAptObj.get("remunLey19640")));
+        }
+
+        if (ingrAptObj.has("segSocANSES")) {
+            ingreso.setSegSocAnses(String.valueOf(ingrAptObj.get("segSocANSES")));
+        }
+
+        if (ingrAptObj.has("noRetMedCaut")) {
+            ingreso.setNoRetMedCaut(String.valueOf(ingrAptObj.get("noRetMedCaut")));
+        }
+
+        if (ingrAptObj.has("remunCctPetro")) {
+            ingreso.setRemunCctPetro(String.valueOf(ingrAptObj.get("remunCctPetro")));
+        }
+
+         if (ingrAptObj.has("asignFam")) {
+            ingreso.setAsignFam(String.valueOf(ingrAptObj.get("asignFam")));
+        }
+
+        if (ingrAptObj.has("intPrestEmp")) {
+            ingreso.setIntPrestEmp(String.valueOf(ingrAptObj.get("intPrestEmp")));
+        }
+
+        if (ingrAptObj.has("remunJudiciales")) {
+            ingreso.setRemunJudiciales(String.valueOf(ingrAptObj.get("remunJudiciales")));
+        }
+
+        if (ingrAptObj.has("indemLey4003")) {
+            ingreso.setIndemLey4003(String.valueOf(ingrAptObj.get("indemLey4003")));
+        }
+
+        if (ingrAptObj.has("cursosSemin")) {
+            ingreso.setCursosSemin(String.valueOf(ingrAptObj.get("cursosSemin")));
+        }
+
+        if (ingrAptObj.has("indumEquipEmp")) {
+            ingreso.setIndumEquipEmp(String.valueOf(ingrAptObj.get("indumEquipEmp")));
+        }
+
+        
+
+
         return ingreso;
     }
 
     public String obtenerProvincia(String cod) {
         switch (cod) {
             case "0":
-                return "Ciudad Autónoma de Buenos Aires";
+                return "Ciudad AutÃ³noma de Buenos Aires";
             case "1":
                 return "Buenos Aires";
             case "2":
                 return "Catamarca";
             case "3":
-                return "Córdoba";
+                return "CÃ³rdoba";
             case "4":
                 return "Corrientes";
             case "5":
-                return "Entre Ríos";
+                return "Entre RÃ­os";
             case "6":
                 return "Jujuy";
             case "7":
@@ -4377,7 +4222,7 @@ public class BSMSIRADIGARG {
             case "13":
                 return "Santiago del Estero";
             case "14":
-                return "Tucumán";
+                return "TucumÃ¡n";
             case "16":
                 return "Chaco";
             case "17":
@@ -4387,11 +4232,11 @@ public class BSMSIRADIGARG {
             case "19":
                 return "Misiones";
             case "20":
-                return "Neuquén";
+                return "NeuquÃ©n";
             case "21":
                 return "La Pampa";
             case "22":
-                return "Río Negro";
+                return "RÃ­o Negro";
             case "23":
                 return "Santa Cruz";
             case "24":
@@ -4416,9 +4261,9 @@ public class BSMSIRADIGARG {
             case "90":
                 return "LE";
             case "92":
-                return "En Trámite";
+                return "En TrÃ¡mite";
 //            case "99":
-//                return "En Trámite";
+//                return "En TrÃ¡mite";
             default:
                 return cod;
         }
@@ -4427,11 +4272,11 @@ public class BSMSIRADIGARG {
     public String obtenerParentesco(String cod) {
         switch (cod) {
             case "1":
-                return "Cónyuge";
+                return "CÃ³nyuge";
             case "3":
-                return "Hijo/a Menor de 18 Años";
+                return "Hijo/a Menor de 18 AÃ±os";
             case "30":
-                return "Hijastro/a Menor de 18 Años";
+                return "Hijastro/a Menor de 18 AÃ±os";
             case "31":
                 return "Hijo/a Incapacitado para el Trabajo";
             case "32":
@@ -4441,11 +4286,11 @@ public class BSMSIRADIGARG {
             case "34":
                 return "Madre";
             case "35":
-                return "Nieto/a Meneor de 24 Años";
+                return "Nieto/a Meneor de 24 AÃ±os";
             case "36":
                 return "Nieto/a Incapacitado para el Trabajo";
             case "37":
-                return "Bisnieto/a Meneor de 24 Años";
+                return "Bisnieto/a Meneor de 24 AÃ±os";
             case "38":
                 return "Bisnieto/a Incapacitado para el Trabajo";
             case "39":
@@ -4455,17 +4300,17 @@ public class BSMSIRADIGARG {
             case "41":
                 return "Padrastro/Madrastra";
             case "42":
-                return "Hermano/a Menor de 24 Años";
+                return "Hermano/a Menor de 24 AÃ±os";
             case "43":
                 return "Hermano/a Incapacitado para el Trabajo";
             case "44":
                 return "Suegro/a";
             case "45":
-                return "Yerno/Nuera Menor de 24 Años";
+                return "Yerno/Nuera Menor de 24 AÃ±os";
             case "46":
                 return "Yerno/Nuera Incapacitado para el Trabajo";
             case "51":
-                return "Unión convivencial";
+                return "UniÃ³n convivencial";
             default:
                 return cod;
         }
@@ -4474,41 +4319,41 @@ public class BSMSIRADIGARG {
     public String obtenerDeduccion(String cod) {
         switch (cod) {
             case "1":
-                return "Cuotas Médico-Asistenciales";
+                return "Cuotas MÃ©dico-Asistenciales";
             case "2":
                 return "Primas de Seguro para el caso de muerte / riesgo de muerte";
             case "3":
                 return "Donaciones";
             case "4":
-                return "Intereses Préstamo Hipotecario";
+                return "Intereses PrÃ©stamo Hipotecario";
             case "5":
                 return "Gastos de Sepelio";
             case "7":
-                return "Gastos Médicos y Paramédicos";
+                return "Gastos MÃ©dicos y ParamÃ©dicos";
             case "8":
-                return "Deducción del Personal Doméstico";
+                return "DeducciÃ³n del Personal DomÃ©stico";
             case "9":
-                return "Aporte a Sociedades de Garantía Recíproca";
+                return "Aporte a Sociedades de GarantÃ­a RecÃ­proca";
             case "10":
                 return "Vehiculos de Corredores y Viajantes de Comercio";
             case "11":
-                return "Períodos 2018 y anteriores: Gastos de Movilidad, Viáticos "
+                return "PerÃ­odos 2018 y anteriores: Gastos de Movilidad, ViÃ¡ticos "
                         + "y Representaciones e "
                         + "Intereses de Corredores y Viajantes de Comercio "
-                        + "Período 2019 en adelante: Gastos de Movilidad e "
+                        + "PerÃ­odo 2019 en adelante: Gastos de Movilidad e "
                         + "Intereses de Corredores y Viajantes de Comercio";
             case "21":
-                return "Gastos de Adquisición de Indumentaria y Equipamiento "
+                return "Gastos de AdquisiciÃ³n de Indumentaria y Equipamiento "
                         + "para uso Exclusivo en el Lugar de Trabajo";
             case "22":
-                return "Alquiler de Inmuebles destinados a casa habitación";
+                return "Alquiler de Inmuebles destinados a casa habitaciÃ³n";
             case "23":
                 return "Primas de Ahorro correspondientes a Seguros Mixtos";
             case "24":
                 return "Aportes correspondientes a Planes de Seguro de Retiro Privados";
             case "25":
-                return "Adquisición de Cuotapartes de Fondos Comunes de "
-                        + "Inversión con fines de retiro "
+                return "AdquisiciÃ³n de Cuotapartes de Fondos Comunes de "
+                        + "InversiÃ³n con fines de retiro "
                         + "99 Otras Deducciones";
             case "29":
                 return "Pago a Cuenta - Per. Trajetas p Pago Serv. A No Resid - RG 4815/2020, Ley 27541 Art. 35 inc. c)";
@@ -4517,7 +4362,7 @@ public class BSMSIRADIGARG {
             case "31":
                 return "Pago a Cuenta - Per. Serv. Transporte el Exterior - RG 4815/2020, Ley 27541 Art. 35 inc. e)";
             case "32":
-                return "Gastos de educación";
+                return "Gastos de educaciÃ³n";
             case "33":
                 return "Beneficios para Locatarios (Inquilinos)";
             case "99":
@@ -4531,29 +4376,29 @@ public class BSMSIRADIGARG {
     public String obtenerMotivos(String cod) {
         switch (cod) {
             case "1":
-                return "Aportes para fondos de Jubilación, Retiros, Pensiones o "
+                return "Aportes para fondos de JubilaciÃ³n, Retiros, Pensiones o "
                         + "Subsidios destinados al ANSES";
             case "2":
                 return "Cajas Provinciales o Municipales";
             case "3":
-                return "Impuesto sobre los Créditos y Débitos en Cuenta Bancaria "
-                        + "sin CBU [nota: reemplazado por Pago a Cuenta Cód. 14 – "
+                return "Impuesto sobre los CrÃ©ditos y DÃ©bitos en Cuenta Bancaria "
+                        + "sin CBU [nota: reemplazado por Pago a Cuenta CÃ³d. 14 â€“ "
                         + "ver Tabla 9]";
             case "4":
-                return "Beneficios Derivados de Regímenes que impliquen "
+                return "Beneficios Derivados de RegÃ­menes que impliquen "
                         + "tratamientos Preferenciales que se Efectivicen Mediante "
                         + "Deducciones";
             case "5":
-                return "Beneficios Derivados de Regímenes que impliquen "
+                return "Beneficios Derivados de RegÃ­menes que impliquen "
                         + "tratamientos Preferenciales que No se Efectivicen "
                         + "Mediante Deducciones";
             case "6":
                 return "Actores - Retribuciones Abonadas a Representantes - R.G. "
-                        + "N° 2442/08";
+                        + "NÂ° 2442/08";
             case "7":
-                return "Cajas Complementarias de Previsión";
+                return "Cajas Complementarias de PrevisiÃ³n";
             case "8":
-                return "Fondos Compensadores de Previsión";
+                return "Fondos Compensadores de PrevisiÃ³n";
             case "9":
                 return "Otros";
             default:
@@ -4566,8 +4411,8 @@ public class BSMSIRADIGARG {
             case "1":
                 return "Montos Retroactivos";
             case "2":
-                return "Reintegros de Soc. de Garantia Recíprocas Art. 79 "
-                        + "Párrafo 2 y Párrafo 3";
+                return "Reintegros de Soc. de Garantia RecÃ­procas Art. 79 "
+                        + "PÃ¡rrafo 2 y PÃ¡rrafo 3";
             default:
                 return cod;
         }
@@ -4576,9 +4421,9 @@ public class BSMSIRADIGARG {
     public String obtenerTipoTarjeta(String cod) {
         switch (cod) {
             case "1":
-                return "Tarjeta de Crédito / Compra";
+                return "Tarjeta de CrÃ©dito / Compra";
             case "2":
-                return "Tarjeta de Débito";
+                return "Tarjeta de DÃ©bito";
             default:
                 return cod;
         }
@@ -4612,7 +4457,7 @@ public class BSMSIRADIGARG {
     public String obtenerRetPerPagCuenta(String cod) {
         switch (cod) {
             case "6":
-                return "Impuestos sobre Créditos y Débitos en cuenta Bancaria";
+                return "Impuestos sobre CrÃ©ditos y DÃ©bitos en cuenta Bancaria";
             case "12":
                 return "Retenciones y Percepciones Aduaneras";
             case "13":
@@ -4620,15 +4465,15 @@ public class BSMSIRADIGARG {
             case "14":
                 return "Impuesto sobre los Movimientos de Fondos Propios o de Terceros";
             case "15":
-                return "Pago a Cuenta - Compra de Paquetes Turísticos";
+                return "Pago a Cuenta - Compra de Paquetes TurÃ­sticos";
             case "26":
                 return "Pago a Cuenta - Compra de Pasajes";
             case "17":
                 return "Pago a Cuenta - Compra de Moneda Extranjera para Turismo / Transf. al Exterior";
             case "18":
-                return "Pago a Cuenta - Adquisición de moneda extranjera para tenencia de billetes extranjeros en el país";
+                return "Pago a Cuenta - AdquisiciÃ³n de moneda extranjera para tenencia de billetes extranjeros en el paÃ­s";
             case "19":
-                return "Pago a Cuenta - Compra de Paquetes Turísticos en efectivo";
+                return "Pago a Cuenta - Compra de Paquetes TurÃ­sticos en efectivo";
             case "20":
                 return "Pago a Cuenta - Compra de Pasajes en efectivo";
             case "27":
@@ -4642,7 +4487,7 @@ public class BSMSIRADIGARG {
             case "31":
                 return "Pago a Cuenta - Per. Serv. Transporte el Exterior - RG 4815/2020, Ley 27541 Art. 35 inc. e)";
             case "32":
-                return "Gastos de educación";
+                return "Gastos de educaciÃ³n";
             default:
                 return cod;
         }
@@ -4695,17 +4540,17 @@ public class BSMSIRADIGARG {
     public String obtenerDatAdicionales(String cod) {
         switch (cod) {
             case "exencionGan2016SAC1":
-                return "exención del impuesto a las ganancias aplicable a la primera cuota";
+                return "exenciÃ³n del impuesto a las ganancias aplicable a la primera cuota";
             case "trabRegPatagonica":
-                return "Trabajador Región Patagónica";
+                return "Trabajador RegiÃ³n PatagÃ³nica";
             case "jubPensRegPatagonica":
-                return "Jubilado, Pensionado y/o Retirado Trabajador Región Patagónica";
+                return "Jubilado, Pensionado y/o Retirado Trabajador RegiÃ³n PatagÃ³nica";
             case "jubPensOtrosIngresos":
-                return "Jubilado, Pensionado y/o Retirado Percibe otros ingresos por monotributo / relación de dependencia / participación en sociedades / actividad autónoma. etc.";
+                return "Jubilado, Pensionado y/o Retirado Percibe otros ingresos por monotributo / relaciÃ³n de dependencia / participaciÃ³n en sociedades / actividad autÃ³noma. etc.";
             case "jubPensTribBienes":
-                return "Jubilado, Pensionado y/o Retirado Tributó Bienes Personales en el último período fiscal anterior al que está declarando";
+                return "Jubilado, Pensionado y/o Retirado TributÃ³ Bienes Personales en el Ãºltimo perÃ­odo fiscal anterior al que estÃ¡ declarando";
             case "jubPensTribOtrosBienes":
-                return "Jubilado, Pensionado y/o Retirado Tiene más bienes, por los que tributó Bienes Personales en el último período fiscal anterior al que está declarando, aparte de su casa-habitación";
+                return "Jubilado, Pensionado y/o Retirado Tiene mÃ¡s bienes, por los que tributÃ³ Bienes Personales en el Ãºltimo perÃ­odo fiscal anterior al que estÃ¡ declarando, aparte de su casa-habitaciÃ³n";
             default:
                 return cod;
         }
