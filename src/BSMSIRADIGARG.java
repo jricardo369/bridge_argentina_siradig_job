@@ -35,6 +35,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.apache.commons.mail.EmailException;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import org.json.XML;
@@ -60,7 +61,7 @@ public class BSMSIRADIGARG {
     String dir = "E:\\BSM\\SendMail\\";
     DecimalFormat formato1 = new DecimalFormat("#,###.##");
 
-    private static String rutaPrd = "\\\\corp.pep.pvt\\appscorp\\SCUS\\Operationsbridge\\Finanzas\\Payroll\\ArchivosSIRADIGARG";
+    private static String rutaPrd = "\\\\scussmb04-f27a.corp.pep.pvt\\Operationsbridge\\Finanzas\\Payroll\\ArchivosSIRADIGARG";
     private static String rutaTest = "E:\\TEST\\FILES_SIRADIG";
 
     public static void main(String[] args)
@@ -89,7 +90,7 @@ public class BSMSIRADIGARG {
             BSMSIRADIGARG exe = new BSMSIRADIGARG();
 
             List<Empleado> empleados = new ArrayList<>();
-            empleados = exe.obtenerDatosXMLDesdeRuta(rutaTest);
+            empleados = exe.obtenerDatosCarpestasySubCarpPrimNivXMlDesdeRuta(rutaTest);
             exe.insertarDatos(procDate, "BSMSIRADIGARG", empleados);
 
         } else {
@@ -97,10 +98,10 @@ public class BSMSIRADIGARG {
             System.out.println(dateFormat.format(new Date()) + " Inicio proceso de envio de correos");
             List<Empleado> empleados = new ArrayList<>();
             BSMSIRADIGARG exe = new BSMSIRADIGARG();
-            empleados = exe.obtenerDatosXMLDesdeRuta(rutaPrd);
+            empleados = exe.obtenerDatosCarpestasySubCarpPrimNivXMlDesdeRuta(rutaPrd);
             exe.insertarDatos(procDate, "BSMSIRADIGARG", empleados);
 
-            exe.envioCorreosAdmins(procDate, "BSMSIRADIGARG");
+            //exe.envioCorreosAdmins(procDate, "BSMSIRADIGARG");
 
             System.out.println(dateFormat.format(new Date()) + " Fin proceso de envio de correos");
 
@@ -414,8 +415,7 @@ public class BSMSIRADIGARG {
                         listaDir.add(fileName);
                     } else {
                         if (!fileName.contains("$") && fileName.contains(".xml")) {
-                            System.out.println(fileName + ", Date: " + fechaActual + ", Dir: " + listaDir.get(i)
-                                    + ", esDir: " + fileToCheck.isDirectory());
+                            //System.out.println(fileName + ", Date: " + fechaActual + ", Dir: " + listaDir.get(i)+ ", esDir: " + fileToCheck.isDirectory());
                             empleados.add(
                                     obtenerXMLJSON(ruta + "\\" + fileName, listaDir.get(i), fileName, count, false));
 
@@ -2096,12 +2096,13 @@ public class BSMSIRADIGARG {
         }
 
             File file = new File(filePath);
-            InputStream inputStream = new FileInputStream(file);
             StringBuilder builder = new StringBuilder();
-            int ptr = 0;
-            while ((ptr = inputStream.read()) != -1) {
-                builder.append((char) ptr);
-                //  System.out.println(ptr);
+            try (InputStream inputStream = new FileInputStream(file)) {
+                int ptr = 0;
+                while ((ptr = inputStream.read()) != -1) {
+                    builder.append((char) ptr);
+                    //  System.out.println(ptr);
+                }
             }
 
             String xml = builder.toString();
@@ -2121,7 +2122,7 @@ public class BSMSIRADIGARG {
 
             if (jsonObj.has("periodo")) {
                 emp.setPeriodo(String.valueOf(jsonObj.get("periodo")));
-                        System.out.println("periodo: " + String.valueOf(jsonObj.get("periodo")));
+                   //     System.out.println("periodo: " + String.valueOf(jsonObj.get("periodo")));
             } else {
 //                        System.out.println("no se encuentra Elemento Periodo");
             }
@@ -3260,8 +3261,13 @@ public class BSMSIRADIGARG {
             }
             // </editor-fold>
 
+        } catch (JSONException e) {
+            System.err.println("XML invalido, se omite archivo: " + filePath + " - " + e.getMessage());
+            return null;
         } catch (Exception e) {
             e.printStackTrace();
+            System.err.println("No se pudo procesar archivo: " + filePath);
+            return null;
         }
 
 //        System.out.println(emp);
@@ -3307,13 +3313,86 @@ public class BSMSIRADIGARG {
                 continue;
             }
 
-            empleados.add(obtenerXMLJSON(
+            Empleado empleado = obtenerXMLJSON(
                     archivo.getPath(),
                     directorio.getName(),
                     nombreArchivo,
                     count,
-                    false));
-            count++;
+                    false);
+            if (empleado != null) {
+                empleados.add(empleado);
+                count++;
+            }
+        }
+
+        return empleados;
+    }
+
+    public List<Empleado> obtenerDatosCarpestasySubCarpPrimNivXMlDesdeRuta(String ruta) {
+        List<Empleado> empleados = new ArrayList<>();
+        List<String> listaDir = new ArrayList<>();
+
+        if (ruta == null || ruta.trim().isEmpty()) {
+            System.out.println("La ruta es vacia o nula");
+            return empleados;
+        }
+
+        File directory = new File(ruta);
+        if (!directory.exists()) {
+            System.out.println("La ruta no existe: " + ruta);
+            return empleados;
+        }
+
+        if (!directory.isDirectory()) {
+            System.out.println("La ruta no corresponde a un directorio: " + ruta);
+            return empleados;
+        }
+
+        String[] directoryList = directory.list();
+        int count = 1;
+        if (directoryList == null) {
+            System.out.println("  No files in directory");
+        } else {
+            for (int i = 0; i < directoryList.length; i++) {
+                String fileName = directoryList[i];
+                File fileToCheck = new File(ruta + "\\" + fileName);
+                long fechaActual = Long.parseLong(
+                        new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(fileToCheck.lastModified())));
+                if (fileToCheck.isDirectory()) {
+                    listaDir.add(fileName);
+                } else {
+                    if (!fileName.contains("$") && fileName.toLowerCase().endsWith(".xml")) {
+                        //System.out.println(fileName + ", Date: " + fechaActual + ", Dir: " + directory.getName()+ ", esDir: " + fileToCheck.isDirectory());
+                        Empleado empleado = obtenerXMLJSON(ruta + "\\" + fileName, directory.getName(), fileName,
+                                count, false);
+                        if (empleado != null) {
+                            empleados.add(empleado);
+                            count++;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < listaDir.size(); i++) {
+            File directoryInsd = new File(ruta + "\\" + listaDir.get(i));
+            String[] directoryListInsd = directoryInsd.list();
+            if (directoryListInsd == null) {
+                System.out.println("  No files in directory");
+            } else {
+                for (int j = 0; j < directoryListInsd.length; j++) {
+                    String fileName = directoryListInsd[j];
+                    File fileToCheck = new File(ruta + "\\" + listaDir.get(i) + "\\" + fileName);
+                    if (!fileName.contains("$") && fileName.toLowerCase().endsWith(".xml")) {
+                        Empleado empleado = obtenerXMLJSON(ruta + "\\" + listaDir.get(i) + "\\" + fileName,
+                                listaDir.get(i), fileName, count, false);
+                        if (empleado != null) {
+                            empleados.add(empleado);
+                            count++;
+                        }
+                    }
+                }
+            }
         }
 
         return empleados;
